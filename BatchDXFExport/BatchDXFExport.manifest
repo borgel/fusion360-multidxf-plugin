@@ -1,0 +1,12 @@
+{
+    "autodeskProduct": "Fusion",
+    "type": "addin",
+    "id": "batch-dxf-export-addin-001",
+    "author": "",
+    "description": {
+        "": "Batch-export selected planar faces as DXF files."
+    },
+    "version": "1.0.0",
+    "runOnStartup": false,
+    "supportedOS": "windows|mac"
+}
