@@ -14,7 +14,7 @@ CMD_ID = "batchDxfExportCmd"
 CMD_NAME = "Batch DXF Export"
 CMD_DESCRIPTION = "Select planar faces and batch-export them as DXF files."
 TOOLBAR_TAB_ID = "ToolsTab"
-TOOLBAR_PANEL_ID = "SolidScriptsAddinsPanel"
+TOOLBAR_PANEL_ID = "BatchDxfExportPanel"
 
 
 def run(context):
@@ -29,7 +29,8 @@ def run(context):
         if existing:
             existing.deleteMe()
 
-        cmd_def = cmd_defs.addButtonDefinition(CMD_ID, CMD_NAME, CMD_DESCRIPTION)
+        res_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources")
+        cmd_def = cmd_defs.addButtonDefinition(CMD_ID, CMD_NAME, CMD_DESCRIPTION, res_folder)
 
         on_created = _CommandCreatedHandler()
         cmd_def.commandCreated.add(on_created)
@@ -53,7 +54,9 @@ def run(context):
         if panel:
             existing_ctrl = panel.controls.itemById(CMD_ID)
             if not existing_ctrl:
-                panel.controls.addCommand(cmd_def)
+                ctrl = panel.controls.addCommand(cmd_def)
+                ctrl.isPromoted = True
+                ctrl.isPromotedByDefault = True
 
     except Exception:
         if _ui:
@@ -77,6 +80,8 @@ def stop(context):
             ctrl = panel.controls.itemById(CMD_ID)
             if ctrl:
                 ctrl.deleteMe()
+            if panel.controls.count == 0:
+                panel.deleteMe()
 
         cmd_def = _ui.commandDefinitions.itemById(CMD_ID)
         if cmd_def:
