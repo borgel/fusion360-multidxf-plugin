@@ -1,6 +1,6 @@
 # Batch DXF Export — Fusion 360 Add-In
 
-Select multiple planar faces in Fusion 360 and batch-export them as DXF files.
+Select multiple planar faces in Fusion 360 and batch-export them as one or more DXF files.
 
 ## Features
 

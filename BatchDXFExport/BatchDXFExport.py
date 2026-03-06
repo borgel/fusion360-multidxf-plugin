@@ -241,6 +241,100 @@ def _export_single_file(faces):
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _sketch_correction_angle(sketch, face):
+    """Return the angle (radians) to rotate DXF coordinates so that the
+    projection of the global X-axis onto the face plane aligns with the
+    DXF X-axis.  This keeps horizontal model edges horizontal in the DXF.
+    """
+    import math
+
+    # The DXF X-axis corresponds to the face's U direction in model space.
+    face_u = face.geometry.uDirection
+    face_u.normalize()
+
+    # Face normal
+    normal = face.geometry.normal
+    normal.normalize()
+
+    # Project global X onto the face plane.
+    global_x = adsk.core.Vector3D.create(1, 0, 0)
+    dot = normal.dotProduct(global_x)
+    if abs(dot) > 0.99:
+        # Face normal ≈ global X → use global Y instead.
+        global_x = adsk.core.Vector3D.create(0, 1, 0)
+        dot = normal.dotProduct(global_x)
+
+    target_x = adsk.core.Vector3D.create(
+        global_x.x - dot * normal.x,
+        global_x.y - dot * normal.y,
+        global_x.z - dot * normal.z,
+    )
+    target_x.normalize()
+
+    # Project global Y onto the face plane to get the desired DXF Y direction.
+    global_y = adsk.core.Vector3D.create(0, 1, 0)
+    if abs(dot) > 0.99:
+        # We used global Y as target_x, so use global Z for target_y.
+        global_y = adsk.core.Vector3D.create(0, 0, 1)
+    dot_y = normal.dotProduct(global_y)
+    target_y = adsk.core.Vector3D.create(
+        global_y.x - dot_y * normal.x,
+        global_y.y - dot_y * normal.y,
+        global_y.z - dot_y * normal.z,
+    )
+    target_y.normalize()
+
+    # The actual DXF Y direction is normal × face_u (right-hand rule with
+    # the face's outward normal as Z), which may differ from face.geometry.vDirection.
+    face_v = normal.crossProduct(face_u)
+    face_v.normalize()
+
+    # Check if the UV frame is mirrored relative to the target frame.
+    # If det < 0, the mapping involves a reflection and we need +180°.
+    det = (face_u.dotProduct(target_x) * face_v.dotProduct(target_y)
+           - face_u.dotProduct(target_y) * face_v.dotProduct(target_x))
+
+    # Signed angle from face_u to target_x (rotation axis = normal).
+    cos_a = face_u.dotProduct(target_x)
+    cross = face_u.crossProduct(target_x)
+    sin_a = cross.dotProduct(normal)
+
+    angle = math.atan2(sin_a, cos_a) + math.pi
+
+    return angle
+
+
+def _rotate_dxf(filepath, angle):
+    """Rotate all 2D coordinates in a DXF file by *angle* radians."""
+    import math
+
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+
+    with open(filepath, "r") as f:
+        lines = f.readlines()
+
+    i = 0
+    while i < len(lines) - 1:
+        code = lines[i].strip()
+        if code in ("10", "11", "12", "13", "14"):
+            # X coordinate — the next line after is the Y (code 20/21/22/23/24).
+            x = float(lines[i + 1].strip())
+            y_code = str(int(code) + 10)
+            if i + 2 < len(lines) and lines[i + 2].strip() == y_code:
+                y = float(lines[i + 3].strip())
+                nx = x * cos_a - y * sin_a
+                ny = x * sin_a + y * cos_a
+                lines[i + 1] = f"{nx}\n"
+                lines[i + 3] = f"{ny}\n"
+                i += 4
+                continue
+        i += 2
+
+    with open(filepath, "w") as f:
+        f.writelines(lines)
+
+
 def export_face_as_dxf(face, filepath):
     """Create a temp sketch on *face*, project its edges, save as DXF, clean up.
 
@@ -249,12 +343,14 @@ def export_face_as_dxf(face, filepath):
     design = adsk.fusion.Design.cast(_app.activeProduct)
     comp = face.body.parentComponent
 
-    sketch = comp.sketches.add(comp.xYConstructionPlane)
+    sketch = comp.sketches.add(face)
     try:
         try:
             sketch.project(face)
         except Exception:
             sketch.project2(face, False)
+
+        angle = _sketch_correction_angle(sketch, face)
 
         try:
             sketch.saveAsDXF(filepath)
@@ -262,6 +358,10 @@ def export_face_as_dxf(face, filepath):
             export_mgr = design.exportManager
             opts = export_mgr.createDXFSketchExportOptions(filepath, sketch)
             export_mgr.execute(opts)
+
+        # Post-process the DXF to correct orientation.
+        if abs(angle) > 1e-9:
+            _rotate_dxf(filepath, -angle)
 
         return True, None
     except Exception as e:
